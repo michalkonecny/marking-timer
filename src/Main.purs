@@ -3,9 +3,11 @@ module Main where
 import Prelude
 
 import Control.Monad.Rec.Class (forever)
+import Data.Argonaut (decodeJson, encodeJson, parseJson, stringify)
 import Data.Array (length, take)
 import Data.DateTime as DateTime
 import Data.DateTime.Instant (Instant, toDateTime)
+import Data.Either (hush)
 import Data.Enum (fromEnum)
 import Data.Foldable (sum)
 import Data.Int as Int
@@ -27,6 +29,10 @@ import Halogen.HTML.Events as HE
 import Halogen.Query.EventSource as ES
 import Halogen.Query.EventSource as ES.EventSource
 import Halogen.VDom.Driver (runUI)
+import Web.HTML (window)
+import Web.HTML.Window (localStorage)
+import Web.Storage.Storage (Storage)
+import Web.Storage.Storage as Storage
 
 main :: Effect Unit
 main = do
@@ -39,23 +45,32 @@ type State = {
   isRunning :: Maybe { prevTick :: Instant }
 , time :: MTime
 , times :: Array MTime
+, m_storage :: Maybe Storage
 }
 
-type MTime = Milliseconds
+type MTime = Number
 
 initialState :: State
 initialState = {
   isRunning: Nothing
-, time: Milliseconds 0.0
+, time: 0.0
 , times: []
+, m_storage: Nothing
 }
+
+parseTimes :: Maybe String -> Maybe (Array MTime)
+parseTimes m_timesS = do
+  timesS <- m_timesS
+  json   <- hush $ parseJson timesS
+  times  <- hush $ decodeJson json
+  pure times
 
 data Action 
   = Init
   | Tick
   | Start
   | Pause
-  -- | Reset
+  -- | ResetHistory
   | Done
 
 tickPeriodMs :: Milliseconds
@@ -97,9 +112,8 @@ component =
 
     avg_n = length times
     avg_n5 = min 5 avg_n
-    avg_time = Milliseconds $ (sum timesN) / (Int.toNumber avg_n)
-    avg_time5 = Milliseconds $ (sum (take avg_n5 timesN)) / (Int.toNumber avg_n5)
-    timesN = map (\(Milliseconds m) -> m) times
+    avg_time = (sum times) / (Int.toNumber avg_n)
+    avg_time5 = (sum (take avg_n5 times)) / (Int.toNumber avg_n5)
 
     actionButton {action, label} = 
       HH.button [HE.onClick (\ _ -> Just action)] [HH.text label]
@@ -107,10 +121,18 @@ component =
       | isJust isRunning = actionButton {action: Pause, label: "Pause"}
       | otherwise        = actionButton {action: Start, label: "Start"}
     doneButton           = actionButton {action: Done , label: "Done"}
-    
 
   handleAction = case _ of
     Init -> do
+      -- get hold of this window's local storage:
+      s <- liftEffect $ window >>= localStorage
+      H.modify_ $ _ { m_storage = Just s }
+      -- attempt to get history from local storage:
+      m_timesS <- liftEffect $ Storage.getItem "times" s
+      let m_times = parseTimes m_timesS
+      case m_times of 
+        Nothing -> pure unit
+        Just times -> H.modify_ $ _ { times = times }
       void $ H.subscribe ticker
 
     Start -> do
@@ -123,7 +145,12 @@ component =
 
     Done -> do
       handleAction Tick -- count the time since previous Tick
-      H.modify_ \s -> s { isRunning = Nothing, time = Milliseconds 0.0, times = [s.time] <> s.times }
+      {time,times,m_storage} <- H.get
+      let times' = [time] <> times
+      case m_storage of
+        Nothing -> pure unit
+        Just s -> liftEffect $ Storage.setItem "times" (stringify $ encodeJson times') s
+      H.modify_ $ _ { isRunning = Nothing, time = 0.0, times = times' }
 
     Tick -> do
       {isRunning} <- H.get
@@ -131,12 +158,12 @@ component =
         Just {prevTick} -> do
           thisTick <- liftEffect now
           let (duration :: Milliseconds) = DateTime.diff (toDateTime thisTick) (toDateTime prevTick)
+          let extendTime time = case (Milliseconds time) <> duration of Milliseconds m -> m
           H.modify_ \ s -> s 
             { isRunning = Just {prevTick: thisTick}
-            , time = s.time <> duration }
+            , time = extendTime s.time }
         _ -> pure unit
     -- _ -> pure unit
-
 
 ticker :: ES.EventSource Aff Action
 ticker = ES.EventSource.affEventSource \emitter -> do
@@ -149,7 +176,7 @@ ticker = ES.EventSource.affEventSource \emitter -> do
 
 showTime :: MTime -> String
 showTime mt =
-  let Tuple _ (Time h m s _) = Time.adjust mt bottom in
+  let Tuple _ (Time h m s _) = Time.adjust (Milliseconds mt) bottom in
   show (fromEnum h) <> ":" <> showPad2 (fromEnum m) <> ":" <> showPad2 (fromEnum s)
 
 showPad2 :: forall t. Show t => t -> String
