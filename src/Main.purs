@@ -11,7 +11,7 @@ import Data.Either (hush)
 import Data.Enum (fromEnum)
 import Data.Foldable (sum)
 import Data.Int as Int
-import Data.Maybe (Maybe(..), isJust)
+import Data.Maybe (Maybe(..), isJust, maybe)
 import Data.String as String
 import Data.Time (Time(..))
 import Data.Time as Time
@@ -70,7 +70,7 @@ data Action
   | Tick
   | Start
   | Pause
-  -- | ResetHistory
+  | ResetHistory
   | Done
 
 tickPeriodMs :: Milliseconds
@@ -125,14 +125,10 @@ component =
   handleAction = case _ of
     Init -> do
       -- get hold of this window's local storage:
-      s <- liftEffect $ window >>= localStorage
-      H.modify_ $ _ { m_storage = Just s }
-      -- attempt to get history from local storage:
-      m_timesS <- liftEffect $ Storage.getItem "times" s
-      let m_times = parseTimes m_timesS
-      case m_times of 
-        Nothing -> pure unit
-        Just times -> H.modify_ $ _ { times = times }
+      storage <- liftEffect $ window >>= localStorage
+      times <- readLocalStorage {storage, default: []}
+      H.modify_ $ _ { m_storage = Just storage, times = times }
+      
       void $ H.subscribe ticker
 
     Start -> do
@@ -145,12 +141,12 @@ component =
 
     Done -> do
       handleAction Tick -- count the time since previous Tick
-      {time,times,m_storage} <- H.get
-      let times' = [time] <> times
-      case m_storage of
-        Nothing -> pure unit
-        Just s -> liftEffect $ Storage.setItem "times" (stringify $ encodeJson times') s
-      H.modify_ $ _ { isRunning = Nothing, time = 0.0, times = times' }
+      H.modify_ \s -> s { isRunning = Nothing, time = 0.0, times = [s.time] <> s.times }
+      updateLocalStorage
+
+    ResetHistory -> do
+      H.modify_ $ _ { times = [] }
+      updateLocalStorage
 
     Tick -> do
       {isRunning} <- H.get
@@ -164,6 +160,18 @@ component =
             , time = extendTime s.time }
         _ -> pure unit
     -- _ -> pure unit
+
+  updateLocalStorage = do
+      {m_storage, times} <- H.get
+      case m_storage of
+        Nothing -> pure unit
+        Just s -> liftEffect $ Storage.setItem "times" (stringify $ encodeJson times) s
+
+  readLocalStorage {storage, default} = do
+    -- attempt to get history from local storage:
+    m_timesS <- liftEffect $ Storage.getItem "times" storage
+    let m_times = parseTimes m_timesS
+    pure $ maybe default identity m_times
 
 ticker :: ES.EventSource Aff Action
 ticker = ES.EventSource.affEventSource \emitter -> do
