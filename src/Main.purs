@@ -103,6 +103,7 @@ component =
           HH.td [] [HH.text $ "Avg of all " <> show avg_n <> ":"]
         , HH.td [] [HH.text $ if avg_n > 0 then showTime avg_time else "N/A"]
         ]
+      , HH.tr_ [ HH.td [] [resetHistoryButton] ]
       , HH.tr_ [ HH.td [] [HH.text $ "Recent times:"] ]
       ]
       <> timesRows
@@ -121,6 +122,7 @@ component =
       | isJust isRunning = actionButton {action: Pause, label: "Pause"}
       | otherwise        = actionButton {action: Start, label: "Start"}
     doneButton           = actionButton {action: Done , label: "Done"}
+    resetHistoryButton   = actionButton {action: ResetHistory , label: "Reset history"}
 
   handleAction = case _ of
     Init -> do
