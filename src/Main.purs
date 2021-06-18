@@ -41,15 +41,12 @@ main = do
     body <- HA.awaitBody
     runUI component unit body
 
-
 type State = {
   isRunning :: Maybe { prevTick :: Instant }
 , time :: MTime
 , times :: Array MTime
 , m_storage :: Maybe Storage
 }
-
-type MTime = Number
 
 initialState :: State
 initialState = {
@@ -59,12 +56,20 @@ initialState = {
 , m_storage: Nothing
 }
 
-parseTimes :: Maybe String -> Maybe (Array MTime)
-parseTimes m_timesS = do
-  timesS <- m_timesS
-  json   <- hush $ parseJson timesS
-  times  <- hush $ decodeJson json
-  pure times
+type MTime = Number
+
+showTime :: MTime -> String
+showTime mt =
+  let Tuple _ (Time h m s _) = Time.adjust (Milliseconds mt) bottom in
+  show (fromEnum h) <> ":" <> showPad2 (fromEnum m) <> ":" <> showPad2 (fromEnum s)
+  where
+  showPad2 n = aux  
+    where
+    aux 
+      | nSlen == 1 = "0" <> nS
+      | otherwise = nS
+    nS = show n
+    nSlen = String.length nS
 
 data Action 
   = Init
@@ -107,9 +112,8 @@ component =
       , HH.tr_ [ HH.td [] [resetHistoryButton] ]
       , HH.tr_ [ HH.td [] [HH.text $ "Recent times:"] ]
       ]
-      <> timesRows
+      <> map timeRow times
     where
-    timesRows = map timeRow times
     timeRow t = HH.tr_ [ HH.td_ [HH.text $ showTime t] ]
 
     avg_n = length times
@@ -180,6 +184,12 @@ component =
     m_timesS <- liftEffect $ Storage.getItem "times" storage
     let m_times = parseTimes m_timesS
     pure $ maybe default identity m_times
+    where
+    parseTimes m_timesS = do
+      timesS <- m_timesS
+      json   <- hush $ parseJson timesS
+      times  <- hush $ decodeJson json
+      pure times
 
 ticker :: ES.EventSource Aff Action
 ticker = ES.EventSource.affEventSource \emitter -> do
@@ -189,18 +199,3 @@ ticker = ES.EventSource.affEventSource \emitter -> do
 
   pure $ ES.EventSource.Finalizer do
     Aff.killFiber (error "ticker: Event source finalized") fiber
-
-showTime :: MTime -> String
-showTime mt =
-  let Tuple _ (Time h m s _) = Time.adjust (Milliseconds mt) bottom in
-  show (fromEnum h) <> ":" <> showPad2 (fromEnum m) <> ":" <> showPad2 (fromEnum s)
-
-showPad2 :: forall t. Show t => t -> String
-showPad2 n = aux  
-  where
-  aux 
-    | nSlen == 1 = "0" <> nS
-    | otherwise = nS
-  nS = show n
-  nSlen = String.length nS
-
