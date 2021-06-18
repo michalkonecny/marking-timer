@@ -21,11 +21,12 @@ import Effect (Effect)
 import Effect.Aff (Aff, error)
 import Effect.Aff as Aff
 import Effect.Now (now)
-import Halogen (liftEffect)
+import Halogen (ClassName(..), liftEffect)
 import Halogen as H
 import Halogen.Aff as HA
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
+import Halogen.HTML.Properties as HP
 import Halogen.Query.EventSource as ES
 import Halogen.Query.EventSource as ES.EventSource
 import Halogen.VDom.Driver (runUI)
@@ -91,7 +92,7 @@ component =
     HH.table_ $
       [
         HH.tr_ [ HH.td [] [startPauseButton] ]
-      , HH.tr_ [ HH.td [] [HH.text $ showTime time] ]
+      , HH.tr_ [ HH.td [HP.class_ (ClassName timeCSSclass)] [HH.text $ showTime time] ]
       , HH.tr_ [ HH.td [] [doneButton] ]
       , HH.tr_ 
         [ 
@@ -123,6 +124,11 @@ component =
       | otherwise        = actionButton {action: Start, label: "Start"}
     doneButton           = actionButton {action: Done , label: "Done"}
     resetHistoryButton   = actionButton {action: ResetHistory , label: "Reset history"}
+
+    timeCSSclass = case isRunning, time == 0.0 of
+      Just _, _ -> "isRunning"
+      _, true   -> "isNotRunning"
+      _, false   -> "isPaused"
 
   handleAction = case _ of
     Init -> do
